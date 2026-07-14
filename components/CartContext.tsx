@@ -1,29 +1,76 @@
 "use client";
 
-import { createContext, useContext, useMemo, useReducer } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { Product } from "@/lib/products";
 
+const CART_STORAGE_KEY = "uncle-jeffs-shopify-cart-id";
+
+type CartMoney = {
+  amount: string;
+  currencyCode: string;
+};
+
+type ShopifyCartApiLine = {
+  id: string;
+  quantity: number;
+  merchandise: {
+    id: string;
+    title: string;
+    selectedOptions: {
+      name: string;
+      value: string;
+    }[];
+    product: {
+      id: string;
+      handle: string;
+      title: string;
+      featuredImage: {
+        url: string;
+        altText: string | null;
+      } | null;
+    };
+    price: CartMoney;
+  };
+  cost: {
+    totalAmount: CartMoney;
+  };
+};
+
+type ShopifyCartApi = {
+  id: string;
+  checkoutUrl: string;
+  totalQuantity: number;
+  cost: {
+    subtotalAmount: CartMoney;
+    totalAmount: CartMoney;
+  };
+  lines: {
+    nodes: ShopifyCartApiLine[];
+  };
+};
+
 export type CartItem = {
+  id: string;
   product: Product;
   quantity: number;
 };
 
-type CartState = {
+type CartContextValue = {
   items: CartItem[];
   isOpen: boolean;
-};
-
-type CartAction =
-  | { type: "ADD_ITEM"; product: Product }
-  | { type: "REMOVE_ITEM"; handle: string }
-  | { type: "UPDATE_QTY"; handle: string; quantity: number }
-  | { type: "OPEN_CART" }
-  | { type: "CLOSE_CART" };
-
-type CartContextValue = CartState & {
-  addItem: (product: Product) => void;
-  removeItem: (handle: string) => void;
-  updateQuantity: (handle: string, quantity: number) => void;
+  isLoading: boolean;
+  error: string | null;
+  checkoutUrl: string | null;
+  addItem: (product: Product) => Promise<void>;
+  removeItem: (lineId: string) => Promise<void>;
+  updateQuantity: (lineId: string, quantity: number) => Promise<void>;
   openCart: () => void;
   closeCart: () => void;
   itemCount: number;
@@ -32,57 +79,181 @@ type CartContextValue = CartState & {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
-function reducer(state: CartState, action: CartAction): CartState {
-  switch (action.type) {
-    case "ADD_ITEM": {
-      const existing = state.items.find(
-        (item) => item.product.handle === action.product.handle,
-      );
-      const items = existing
-        ? state.items.map((item) =>
-            item.product.handle === action.product.handle
-              ? { ...item, quantity: item.quantity + 1 }
-              : item,
-          )
-        : [...state.items, { product: action.product, quantity: 1 }];
-      return { items, isOpen: true };
-    }
-    case "REMOVE_ITEM":
-      return {
-        ...state,
-        items: state.items.filter(
-          (item) => item.product.handle !== action.handle,
-        ),
-      };
-    case "UPDATE_QTY":
-      return {
-        ...state,
-        items:
-          action.quantity <= 0
-            ? state.items.filter(
-                (item) => item.product.handle !== action.handle,
-              )
-            : state.items.map((item) =>
-                item.product.handle === action.handle
-                  ? { ...item, quantity: action.quantity }
-                  : item,
-              ),
-      };
-    case "OPEN_CART":
-      return { ...state, isOpen: true };
-    case "CLOSE_CART":
-      return { ...state, isOpen: false };
-    default:
-      return state;
-  }
+function formatPrice(money: CartMoney) {
+  return (
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: money.currencyCode,
+    }).format(Number(money.amount)) + ` ${money.currencyCode}`
+  );
+}
+
+function cartToItems(cart: ShopifyCartApi): CartItem[] {
+  return cart.lines.nodes.map((line) => {
+    const selectedSize =
+      line.merchandise.selectedOptions
+        .map((option) => option.value)
+        .filter((value) => value && value !== "Default Title")
+        .join(" / ") || "M/L";
+
+    return {
+      id: line.id,
+      quantity: line.quantity,
+      product: {
+        id: line.merchandise.product.id,
+        handle: line.merchandise.product.handle,
+        title: line.merchandise.product.title,
+        price: formatPrice(line.merchandise.price),
+        available: true,
+        color: "",
+        images: line.merchandise.product.featuredImage?.url
+          ? [line.merchandise.product.featuredImage.url]
+          : [],
+        sizingMen: selectedSize,
+        sizingWomen: "",
+        variantId: line.merchandise.id,
+      },
+    };
+  });
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, { items: [], isOpen: false });
+  const [cartId, setCartId] = useState<string | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const applyCart = useCallback((cart: ShopifyCartApi | null) => {
+    if (!cart) {
+      setCartId(null);
+      setCheckoutUrl(null);
+      setItems([]);
+      localStorage.removeItem(CART_STORAGE_KEY);
+      return;
+    }
+
+    setCartId(cart.id);
+    setCheckoutUrl(cart.checkoutUrl);
+    setItems(cartToItems(cart));
+    localStorage.setItem(CART_STORAGE_KEY, cart.id);
+  }, []);
+
+  useEffect(() => {
+    const savedCartId = localStorage.getItem(CART_STORAGE_KEY);
+
+    if (!savedCartId) {
+      return;
+    }
+
+    setIsLoading(true);
+    fetch(`/api/shopify/cart?cartId=${encodeURIComponent(savedCartId)}`)
+      .then(async (response) => {
+        const data = (await response.json()) as {
+          cart?: ShopifyCartApi | null;
+          error?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Unable to restore cart.");
+        }
+
+        applyCart(data.cart ?? null);
+      })
+      .catch((caughtError) => {
+        console.error(caughtError);
+        localStorage.removeItem(CART_STORAGE_KEY);
+        setCartId(null);
+        setCheckoutUrl(null);
+        setItems([]);
+      })
+      .finally(() => setIsLoading(false));
+  }, [applyCart]);
+
+  const postCartAction = useCallback(
+    async (body: Record<string, unknown>) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch("/api/shopify/cart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await response.json()) as {
+          cart?: ShopifyCartApi;
+          error?: string;
+        };
+
+        if (!response.ok || !data.cart) {
+          throw new Error(data.error ?? "Unable to update cart.");
+        }
+
+        applyCart(data.cart);
+      } catch (caughtError) {
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Unable to update cart.";
+        console.error(caughtError);
+        setError(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [applyCart],
+  );
+
+  const addItem = useCallback(
+    async (product: Product) => {
+      if (!product.variantId) {
+        setError("This product is missing a Shopify variant.");
+        return;
+      }
+
+      setIsOpen(true);
+      await postCartAction({
+        action: "add",
+        cartId,
+        merchandiseId: product.variantId,
+        quantity: 1,
+      });
+    },
+    [cartId, postCartAction],
+  );
+
+  const removeItem = useCallback(
+    async (lineId: string) => {
+      if (!cartId) return;
+
+      await postCartAction({
+        action: "remove",
+        cartId,
+        lineId,
+      });
+    },
+    [cartId, postCartAction],
+  );
+
+  const updateQuantity = useCallback(
+    async (lineId: string, quantity: number) => {
+      if (!cartId) return;
+
+      await postCartAction({
+        action: quantity <= 0 ? "remove" : "update",
+        cartId,
+        lineId,
+        quantity,
+      });
+    },
+    [cartId, postCartAction],
+  );
 
   const value = useMemo<CartContextValue>(() => {
-    const itemCount = state.items.reduce((sum, item) => sum + item.quantity, 0);
-    const total = state.items.reduce(
+    const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+    const total = items.reduce(
       (sum, item) =>
         sum +
         Number.parseFloat(item.product.price.replace(/[^0-9.]/g, "")) *
@@ -91,17 +262,29 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     );
 
     return {
-      ...state,
+      items,
+      isOpen,
+      isLoading,
+      error,
+      checkoutUrl,
       itemCount,
       total,
-      addItem: (product) => dispatch({ type: "ADD_ITEM", product }),
-      removeItem: (handle) => dispatch({ type: "REMOVE_ITEM", handle }),
-      updateQuantity: (handle, quantity) =>
-        dispatch({ type: "UPDATE_QTY", handle, quantity }),
-      openCart: () => dispatch({ type: "OPEN_CART" }),
-      closeCart: () => dispatch({ type: "CLOSE_CART" }),
+      addItem,
+      removeItem,
+      updateQuantity,
+      openCart: () => setIsOpen(true),
+      closeCart: () => setIsOpen(false),
     };
-  }, [state]);
+  }, [
+    addItem,
+    checkoutUrl,
+    error,
+    isLoading,
+    isOpen,
+    items,
+    removeItem,
+    updateQuantity,
+  ]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

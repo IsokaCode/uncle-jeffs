@@ -17,6 +17,9 @@ export function CartDrawer() {
     removeItem,
     updateQuantity,
     total,
+    isLoading,
+    error,
+    checkoutUrl,
   } = useCart();
 
   useEffect(() => {
@@ -40,31 +43,12 @@ export function CartDrawer() {
   async function proceedToCheckout() {
     setCheckoutState("loading");
 
-    try {
-      const response = await fetch("/api/shopify/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lines: items.map(({ product, quantity }) => ({
-            merchandiseId: product.variantId,
-            quantity,
-          })),
-        }),
-      });
-      const data = (await response.json()) as {
-        checkoutUrl?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !data.checkoutUrl) {
-        throw new Error(data.error ?? "Checkout failed.");
-      }
-
-      window.location.href = data.checkoutUrl;
-    } catch (error) {
-      console.error(error);
+    if (!checkoutUrl) {
       setCheckoutState("error");
+      return;
     }
+
+    window.location.href = checkoutUrl;
   }
 
   return (
@@ -89,10 +73,12 @@ export function CartDrawer() {
 
         <div className="cart-content">
           {items.length === 0 ? (
-            <p className="empty-cart">Your cart is empty</p>
+            <p className="empty-cart">
+              {isLoading ? "Loading cart..." : "Your cart is empty"}
+            </p>
           ) : (
-            items.map(({ product, quantity }) => (
-              <article className="cart-item" key={product.handle}>
+            items.map(({ id, product, quantity }) => (
+              <article className="cart-item" key={id}>
                 <div className="cart-item-image">
                   {product.images[0] ? (
                     <Image
@@ -115,8 +101,9 @@ export function CartDrawer() {
                     <button
                       type="button"
                       onClick={() =>
-                        updateQuantity(product.handle, quantity - 1)
+                        updateQuantity(id, quantity - 1)
                       }
+                      disabled={isLoading}
                       aria-label={`Decrease ${product.title} quantity`}
                     >
                       -
@@ -125,8 +112,9 @@ export function CartDrawer() {
                     <button
                       type="button"
                       onClick={() =>
-                        updateQuantity(product.handle, quantity + 1)
+                        updateQuantity(id, quantity + 1)
                       }
+                      disabled={isLoading}
                       aria-label={`Increase ${product.title} quantity`}
                     >
                       +
@@ -135,7 +123,8 @@ export function CartDrawer() {
                   <button
                     type="button"
                     className="remove-item"
-                    onClick={() => removeItem(product.handle)}
+                    onClick={() => removeItem(id)}
+                    disabled={isLoading}
                   >
                     Remove
                   </button>
@@ -154,7 +143,7 @@ export function CartDrawer() {
             <button
               type="button"
               onClick={proceedToCheckout}
-              disabled={checkoutState === "loading"}
+              disabled={checkoutState === "loading" || isLoading}
             >
               {checkoutState === "loading"
                 ? "CREATING CHECKOUT..."
@@ -162,10 +151,11 @@ export function CartDrawer() {
             </button>
             {checkoutState === "error" && (
               <p className="checkout-error">
-                Checkout is not available. Check Shopify product variants and
-                environment variables.
+                Checkout is not available. Check Shopify cart and environment
+                variables.
               </p>
             )}
+            {error && <p className="checkout-error">{error}</p>}
           </footer>
         )}
       </aside>

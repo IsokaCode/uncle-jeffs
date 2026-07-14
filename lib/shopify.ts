@@ -56,14 +56,81 @@ type ShopifyProductResponse = {
 
 type ShopifyCartCreateResponse = {
   cartCreate: {
-    cart: {
-      id: string;
-      checkoutUrl: string;
-    } | null;
+    cart: ShopifyCart | null;
     userErrors: {
       field: string[] | null;
       message: string;
     }[];
+  };
+};
+
+type ShopifyCartResponse = {
+  cart: ShopifyCart | null;
+};
+
+type ShopifyCartLinesAddResponse = {
+  cartLinesAdd: {
+    cart: ShopifyCart | null;
+    userErrors: {
+      field: string[] | null;
+      message: string;
+    }[];
+  };
+};
+
+type ShopifyCartLinesUpdateResponse = {
+  cartLinesUpdate: {
+    cart: ShopifyCart | null;
+    userErrors: {
+      field: string[] | null;
+      message: string;
+    }[];
+  };
+};
+
+type ShopifyCartLinesRemoveResponse = {
+  cartLinesRemove: {
+    cart: ShopifyCart | null;
+    userErrors: {
+      field: string[] | null;
+      message: string;
+    }[];
+  };
+};
+
+export type ShopifyCart = {
+  id: string;
+  checkoutUrl: string;
+  totalQuantity: number;
+  cost: {
+    subtotalAmount: MoneyV2;
+    totalAmount: MoneyV2;
+  };
+  lines: {
+    nodes: ShopifyCartLine[];
+  };
+};
+
+export type ShopifyCartLine = {
+  id: string;
+  quantity: number;
+  merchandise: {
+    id: string;
+    title: string;
+    selectedOptions: {
+      name: string;
+      value: string;
+    }[];
+    product: {
+      id: string;
+      handle: string;
+      title: string;
+      featuredImage: ShopifyImage | null;
+    };
+    price: MoneyV2;
+  };
+  cost: {
+    totalAmount: MoneyV2;
   };
 };
 
@@ -185,12 +252,112 @@ const productByHandleQuery = `
   }
 `;
 
+const cartFields = `
+  id
+  checkoutUrl
+  totalQuantity
+  cost {
+    subtotalAmount {
+      amount
+      currencyCode
+    }
+    totalAmount {
+      amount
+      currencyCode
+    }
+  }
+  lines(first: 100) {
+    nodes {
+      id
+      quantity
+      cost {
+        totalAmount {
+          amount
+          currencyCode
+        }
+      }
+      merchandise {
+        ... on ProductVariant {
+          id
+          title
+          price {
+            amount
+            currencyCode
+          }
+          selectedOptions {
+            name
+            value
+          }
+          product {
+            id
+            handle
+            title
+            featuredImage {
+              url
+              altText
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const cartCreateMutation = `
   mutation CartCreate($lines: [CartLineInput!]!) {
     cartCreate(input: { lines: $lines }) {
       cart {
-        id
-        checkoutUrl
+        ${cartFields}
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const cartQuery = `
+  query Cart($id: ID!) {
+    cart(id: $id) {
+      ${cartFields}
+    }
+  }
+`;
+
+const cartLinesAddMutation = `
+  mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
+    cartLinesAdd(cartId: $cartId, lines: $lines) {
+      cart {
+        ${cartFields}
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const cartLinesUpdateMutation = `
+  mutation CartLinesUpdate($cartId: ID!, $lines: [CartLineUpdateInput!]!) {
+    cartLinesUpdate(cartId: $cartId, lines: $lines) {
+      cart {
+        ${cartFields}
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const cartLinesRemoveMutation = `
+  mutation CartLinesRemove($cartId: ID!, $lineIds: [ID!]!) {
+    cartLinesRemove(cartId: $cartId, lineIds: $lineIds) {
+      cart {
+        ${cartFields}
       }
       userErrors {
         field
@@ -284,7 +451,29 @@ export async function getProductByHandle(handle: string): Promise<Product | unde
   }
 }
 
-export async function createCheckout(lines: CheckoutLine[]) {
+function handleCartUserErrors(errors: { message: string }[]) {
+  if (errors.length) {
+    throw new Error(errors.map((error) => error.message).join(" "));
+  }
+}
+
+function requireCart(cart: ShopifyCart | null) {
+  if (!cart) {
+    throw new Error("Shopify did not return a cart.");
+  }
+
+  return cart;
+}
+
+export async function getCart(cartId: string) {
+  const data = await shopifyFetch<ShopifyCartResponse>(cartQuery, {
+    id: cartId,
+  });
+
+  return data.cart;
+}
+
+export async function createCart(lines: CheckoutLine[]) {
   const data = await shopifyFetch<ShopifyCartCreateResponse>(
     cartCreateMutation,
     {
@@ -295,14 +484,56 @@ export async function createCheckout(lines: CheckoutLine[]) {
     },
   );
 
-  const errors = data.cartCreate.userErrors;
-  if (errors.length) {
-    throw new Error(errors.map((error) => error.message).join(" "));
-  }
+  handleCartUserErrors(data.cartCreate.userErrors);
 
-  if (!data.cartCreate.cart) {
-    throw new Error("Shopify did not return a cart.");
-  }
+  return requireCart(data.cartCreate.cart);
+}
 
-  return data.cartCreate.cart;
+export async function createCheckout(lines: CheckoutLine[]) {
+  return createCart(lines);
+}
+
+export async function addCartLines(cartId: string, lines: CheckoutLine[]) {
+  const data = await shopifyFetch<ShopifyCartLinesAddResponse>(
+    cartLinesAddMutation,
+    {
+      cartId,
+      lines: lines.map((line) => ({
+        merchandiseId: line.merchandiseId,
+        quantity: line.quantity,
+      })),
+    },
+  );
+
+  handleCartUserErrors(data.cartLinesAdd.userErrors);
+  return requireCart(data.cartLinesAdd.cart);
+}
+
+export async function updateCartLines(
+  cartId: string,
+  lines: { id: string; quantity: number }[],
+) {
+  const data = await shopifyFetch<ShopifyCartLinesUpdateResponse>(
+    cartLinesUpdateMutation,
+    {
+      cartId,
+      lines,
+    },
+  );
+
+  handleCartUserErrors(data.cartLinesUpdate.userErrors);
+  return requireCart(data.cartLinesUpdate.cart);
+}
+
+export async function removeCartLines(cartId: string, lineIds: string[]) {
+  const data = await shopifyFetch<ShopifyCartLinesRemoveResponse>(
+    cartLinesRemoveMutation,
+    {
+      cartId,
+      lineIds,
+    },
+  );
+
+  handleCartUserErrors(data.cartLinesRemove.userErrors);
+  return requireCart(data.cartLinesRemove.cart);
 }
