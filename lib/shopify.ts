@@ -1,4 +1,5 @@
 import { getProduct, products as fallbackProducts, type Product } from "@/lib/products";
+import { getDisplayProducts } from "@/lib/product-order";
 
 const SHOPIFY_API_VERSION = "2026-07";
 
@@ -16,6 +17,7 @@ type ShopifyProductNode = {
   id: string;
   handle: string;
   title: string;
+  description: string;
   availableForSale: boolean;
   featuredImage: ShopifyImage | null;
   images: {
@@ -197,6 +199,7 @@ const productFields = `
   id
   handle
   title
+  description
   availableForSale
   featuredImage {
     url
@@ -392,9 +395,35 @@ function getColor(product: ShopifyProductNode, fallback?: Product) {
   );
 }
 
+function getDescriptionParts(product: ShopifyProductNode, fallback?: Product) {
+  const description = product.description.replace(/\r\n/g, "\n").trim();
+
+  if (!description) {
+    return {
+      description: fallback?.description ?? "",
+      measurements: fallback?.measurements ?? "",
+    };
+  }
+
+  const match = description.match(/\bMeasurements\s*:/i);
+
+  if (!match || match.index === undefined) {
+    return {
+      description,
+      measurements: fallback?.measurements ?? "",
+    };
+  }
+
+  return {
+    description: description.slice(0, match.index).trim(),
+    measurements: description.slice(match.index + match[0].length).trim(),
+  };
+}
+
 function mapShopifyProduct(product: ShopifyProductNode): Product {
   const fallback = getProduct(product.handle);
   const variant = product.variants.nodes[0];
+  const descriptionParts = getDescriptionParts(product, fallback);
   const images = product.images.nodes.length
     ? product.images.nodes.map((image) => image.url)
     : product.featuredImage?.url
@@ -411,26 +440,28 @@ function mapShopifyProduct(product: ShopifyProductNode): Product {
     images,
     sizingMen: product.sizingMen?.value ?? fallback?.sizingMen ?? "M/L",
     sizingWomen: product.sizingWomen?.value ?? fallback?.sizingWomen ?? "S/M",
+    description: descriptionParts.description,
+    measurements: descriptionParts.measurements,
     variantId: variant?.id,
   };
 }
 
 export async function getProducts(): Promise<Product[]> {
   if (!isShopifyConfigured()) {
-    return fallbackProducts;
+    return getDisplayProducts(fallbackProducts);
   }
 
   try {
     const data = await shopifyFetch<ShopifyProductsResponse>(productsQuery);
     if (!data.products.nodes.length) {
       console.warn("Shopify returned no products. Falling back to local products.");
-      return fallbackProducts;
+      return getDisplayProducts(fallbackProducts);
     }
 
-    return data.products.nodes.map(mapShopifyProduct);
+    return getDisplayProducts(data.products.nodes.map(mapShopifyProduct));
   } catch (error) {
     console.error(error);
-    return fallbackProducts;
+    return getDisplayProducts(fallbackProducts);
   }
 }
 

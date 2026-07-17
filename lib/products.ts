@@ -8,6 +8,8 @@ export type Product = {
   images: string[];
   sizingMen: string;
   sizingWomen: string;
+  description?: string;
+  measurements?: string;
   variantId?: string;
 };
 

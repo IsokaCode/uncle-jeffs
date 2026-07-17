@@ -465,6 +465,31 @@ button:disabled {
   background: var(--mid-gray);
 }
 
+.product-copy {
+  display: grid;
+  gap: 26px;
+  margin-top: 34px;
+  padding-top: 26px;
+  border-top: 1px solid var(--black);
+}
+
+.product-copy h2 {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.product-copy p {
+  margin-top: 10px;
+  color: #222222;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
 .history-page,
 .contact-page {
   min-height: calc(100vh - var(--nav-height) - var(--announcement-height));

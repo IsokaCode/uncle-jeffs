@@ -89,6 +89,23 @@ export function ProductDetails({ product }: { product: Product }) {
         >
           {product.available ? "ADD TO CART" : "SOLD OUT"}
         </button>
+
+        {(product.description || product.measurements) && (
+          <div className="product-copy">
+            {product.description && (
+              <section>
+                <h2>Description</h2>
+                <p>{product.description}</p>
+              </section>
+            )}
+            {product.measurements && (
+              <section>
+                <h2>Measurements</h2>
+                <p>{product.measurements}</p>
+              </section>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
