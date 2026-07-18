@@ -9,10 +9,11 @@ export default async function HomePage() {
     <div className="home-page">
       <section className="home-banner">
         <Image
-          src="/banner/UJB&W Banner.PNG"
+          src="/banner/ujbw-banner.png"
           alt="Uncle Jeff's workwear archive"
           fill
           priority
+          unoptimized
           sizes="100vw"
         />
       </section>

@@ -25,11 +25,12 @@ export function Nav() {
       <div className="nav-inner">
         <Link href="/" className="nav-logo" aria-label="Uncle Jeff's home">
           <Image
-            src="/logo/B&W Logo.png"
+            src="/logo/ujbw-logo.png"
             alt="Uncle Jeff's"
             width={68}
             height={68}
             priority
+            unoptimized
           />
         </Link>
 
