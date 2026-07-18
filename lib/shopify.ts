@@ -143,6 +143,7 @@ export type CheckoutLine = {
 
 const domain = process.env.SHOPIFY_STORE_DOMAIN;
 const token = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+const SHOPIFY_FETCH_TIMEOUT_MS = 12_000;
 
 export function isShopifyConfigured() {
   return Boolean(domain && token);
@@ -173,6 +174,7 @@ async function shopifyFetch<TData>(
     },
     body: JSON.stringify({ query, variables }),
     next: { revalidate: 60 },
+    signal: AbortSignal.timeout(SHOPIFY_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {

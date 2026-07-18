@@ -28,6 +28,8 @@
     "typescript": "5.8.3"
   },
   "overrides": {
+    "@typescript-eslint/eslint-plugin": "8.40.0",
+    "@typescript-eslint/parser": "8.40.0",
     "next": {
       "postcss": "8.5.10"
     }
