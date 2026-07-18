@@ -34,7 +34,6 @@ export function ProductCard({
       </div>
       <div className="product-card-copy">
         <h2>{product.title}</h2>
-        <p className="product-color">{product.color}</p>
         <p className="product-price">{product.price}</p>
         <p className="availability">
           <Image

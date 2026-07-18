@@ -4,9 +4,9 @@ import { ProductDetails } from "@/components/ProductDetails";
 import { getProductByHandle, getProducts } from "@/lib/shopify";
 
 type ProductPageProps = {
-  params: {
+  params: Promise<{
     handle: string;
-  };
+  }>;
 };
 
 export async function generateStaticParams() {
@@ -15,14 +15,16 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
-  const product = await getProductByHandle(params.handle);
+  const { handle } = await params;
+  const product = await getProductByHandle(handle);
   return {
     title: product?.title ?? "Product",
   };
 }
 
 export default async function ProductPage({ params }: ProductPageProps) {
-  const product = await getProductByHandle(params.handle);
+  const { handle } = await params;
+  const product = await getProductByHandle(handle);
 
   if (!product) {
     notFound();

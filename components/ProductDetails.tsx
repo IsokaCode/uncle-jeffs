@@ -51,7 +51,6 @@ export function ProductDetails({ product }: { product: Product }) {
       </section>
 
       <section className="product-info">
-        <p className="product-kicker">{product.color}</p>
         <h1>{product.title}</h1>
         <p className="product-page-price">{product.price}</p>
         <p className={`availability ${product.available ? "" : "sold"}`}>
